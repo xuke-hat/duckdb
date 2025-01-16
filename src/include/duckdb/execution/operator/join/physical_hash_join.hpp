@@ -54,6 +54,9 @@ public:
 	//! Join Keys statistics (optional)
 	vector<unique_ptr<BaseStatistics>> join_stats;
 
+	//! Extra condition for non-comparison join condition
+	unique_ptr<Expression> extra_condition;
+
 public:
 	InsertionOrderPreservingMap<string> ParamsToString() const override;
 

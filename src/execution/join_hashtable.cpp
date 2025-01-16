@@ -767,12 +767,18 @@ void JoinHashTable::Probe(ScanStructure &scan_structure, DataChunk &keys, TupleD
 	}
 }
 
-ScanStructure::ScanStructure(JoinHashTable &ht_p, TupleDataChunkState &key_state_p)
+ScanStructure::ScanStructure(JoinHashTable &ht_p, TupleDataChunkState &key_state_p, ClientContext &context,
+                             Expression *extra_expression)
     : key_state(key_state_p), pointers(LogicalType::POINTER), count(0), sel_vector(STANDARD_VECTOR_SIZE),
       chain_match_sel_vector(STANDARD_VECTOR_SIZE), chain_no_match_sel_vector(STANDARD_VECTOR_SIZE),
       found_match(make_unsafe_uniq_array_uninitialized<bool>(STANDARD_VECTOR_SIZE)), ht(ht_p), finished(false),
       is_null(true), rhs_pointers(LogicalType::POINTER), lhs_sel_vector(STANDARD_VECTOR_SIZE), last_match_count(0),
-      last_sel_vector(STANDARD_VECTOR_SIZE) {
+      last_sel_vector(STANDARD_VECTOR_SIZE), has_extra_condition(false), extra_sel_vector(STANDARD_VECTOR_SIZE),
+      extra_executor(context) {
+	if (extra_expression) {
+		has_extra_condition = true;
+		extra_executor.AddExpression(*extra_expression);
+	}
 }
 
 void ScanStructure::Next(DataChunk &keys, DataChunk &left, DataChunk &result) {
@@ -845,13 +851,6 @@ idx_t ScanStructure::ScanInnerJoin(DataChunk &keys, SelectionVector &result_vect
 		// resolve the equality_predicates for this set of keys
 		idx_t result_count = ResolvePredicates(keys, result_vector, nullptr);
 
-		// after doing all the comparisons set the found_match vector
-		if (found_match) {
-			for (idx_t i = 0; i < result_count; i++) {
-				auto idx = result_vector.get_index(i);
-				found_match[idx] = true;
-			}
-		}
 		if (result_count > 0) {
 			return result_count;
 		}
@@ -966,6 +965,20 @@ void ScanStructure::NextInnerJoin(DataChunk &keys, DataChunk &left, DataChunk &r
 						GatherResult(vector, chain_match_sel_vector, result_count, output_col_idx);
 					}
 
+					if (has_extra_condition) {
+						result_count = extra_executor.SelectExpression(result, extra_sel_vector);
+						result.Slice(extra_sel_vector, result_count);
+						chain_match_sel_vector.Slice(extra_sel_vector, result_count);
+					}
+
+					// after doing all the comparisons set the found_match vector
+					if (found_match) {
+						for (idx_t i = 0; i < result_count; i++) {
+							auto idx = chain_match_sel_vector.get_index(i);
+							found_match[idx] = true;
+						}
+					}
+
 					AdvancePointers();
 					return;
 				}
@@ -989,6 +1002,20 @@ void ScanStructure::NextInnerJoin(DataChunk &keys, DataChunk &left, DataChunk &r
 			const auto output_col_idx = ht.output_columns[i];
 			D_ASSERT(vector.GetType() == ht.layout.GetTypes()[output_col_idx]);
 			GatherResult(vector, base_count, output_col_idx);
+		}
+
+		if (has_extra_condition) {
+			base_count = extra_executor.SelectExpression(result, extra_sel_vector);
+			result.Slice(extra_sel_vector, base_count);
+			lhs_sel_vector.Slice(extra_sel_vector, base_count);
+		}
+
+		// after doing all the comparisons set the found_match vector
+		if (found_match) {
+			for (idx_t i = 0; i < base_count; i++) {
+				auto idx = lhs_sel_vector.get_index(i);
+				found_match[idx] = true;
+			}
 		}
 	}
 }

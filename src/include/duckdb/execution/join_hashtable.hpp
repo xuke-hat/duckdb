@@ -82,6 +82,7 @@ public:
 		bool finished;
 		bool is_null;
 
+
 		// it records the RHS pointers for the result chunk
 		Vector rhs_pointers;
 		// it records the LHS sel vector for the result chunk
@@ -90,7 +91,12 @@ public:
 		idx_t last_match_count;
 		SelectionVector last_sel_vector;
 
-		explicit ScanStructure(JoinHashTable &ht, TupleDataChunkState &key_state);
+		bool has_extra_condition;
+		SelectionVector extra_sel_vector;
+		ExpressionExecutor extra_executor;
+
+		ScanStructure(JoinHashTable &ht, TupleDataChunkState &key_state, ClientContext &context,
+		              Expression *extra_expression);
 		//! Get the next batch of data from the scan structure
 		void Next(DataChunk &keys, DataChunk &left, DataChunk &result);
 		//! Are pointer chains all pointing to NULL?

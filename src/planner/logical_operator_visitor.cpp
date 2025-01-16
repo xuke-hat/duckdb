@@ -144,6 +144,9 @@ void LogicalOperatorVisitor::EnumerateExpressions(LogicalOperator &op,
 			callback(&cond.left);
 			callback(&cond.right);
 		}
+		if (join.extra_condition) {
+			callback(&join.extra_condition);
+		}
 		break;
 	}
 	case LogicalOperatorType::LOGICAL_ANY_JOIN: {

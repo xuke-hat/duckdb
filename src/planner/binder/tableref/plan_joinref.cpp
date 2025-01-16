@@ -188,7 +188,7 @@ unique_ptr<LogicalOperator> LogicalComparisonJoin::CreateJoin(ClientContext &con
 		break;
 	}
 
-	if (type == JoinType::INNER && reftype == JoinRefType::REGULAR) {
+	if ((type == JoinType::INNER || type == JoinType::LEFT) && reftype == JoinRefType::REGULAR) {
 		// for inner joins we can push arbitrary expressions as a filter
 		// here we prefer to create a comparison join if possible
 		// that way we can use the much faster hash join to process the main join
@@ -231,7 +231,10 @@ unique_ptr<LogicalOperator> LogicalComparisonJoin::CreateJoin(ClientContext &con
 		comp_join->conditions = std::move(conditions);
 		comp_join->children.push_back(std::move(left_child));
 		comp_join->children.push_back(std::move(right_child));
-		if (!arbitrary_expressions.empty()) {
+		if (arbitrary_expressions.empty()) {
+			return std::move(comp_join);
+		}
+		if (type == JoinType::INNER) {
 			// we have some arbitrary expressions as well
 			// add them to a filter
 			auto filter = make_uniq<LogicalFilter>();
@@ -241,8 +244,16 @@ unique_ptr<LogicalOperator> LogicalComparisonJoin::CreateJoin(ClientContext &con
 			LogicalFilter::SplitPredicates(filter->expressions);
 			filter->children.push_back(std::move(comp_join));
 			return std::move(filter);
+		} else {
+			// AND all the arbitrary expressions together
+			unique_ptr<Expression> condition = std::move(arbitrary_expressions[0]);
+			for (idx_t i = 1; i < arbitrary_expressions.size(); i++) {
+				condition = make_uniq<BoundConjunctionExpression>(ExpressionType::CONJUNCTION_AND, std::move(condition),
+				                                                  std::move(arbitrary_expressions[i]));
+			}
+			comp_join->extra_condition = std::move(condition);
+			return std::move(comp_join);
 		}
-		return std::move(comp_join);
 	}
 }
 

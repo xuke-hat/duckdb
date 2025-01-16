@@ -43,8 +43,8 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::PlanComparisonJoin(LogicalCo
 
 	idx_t has_range = 0;
 	bool has_equality = op.HasEquality(has_range);
-	bool can_merge = has_range > 0;
-	bool can_iejoin = has_range >= 2 && recursive_cte_tables.empty();
+	bool can_merge = has_range > 0 && !op.extra_condition;
+	bool can_iejoin = has_range >= 2 && recursive_cte_tables.empty() && !op.extra_condition;
 	switch (op.join_type) {
 	case JoinType::SEMI:
 	case JoinType::ANTI:
@@ -69,6 +69,7 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::PlanComparisonJoin(LogicalCo
 		    op, std::move(left), std::move(right), std::move(op.conditions), op.join_type, op.left_projection_map,
 		    op.right_projection_map, std::move(op.mark_types), op.estimated_cardinality, std::move(op.filter_pushdown));
 		plan->Cast<PhysicalHashJoin>().join_stats = std::move(op.join_stats);
+		plan->Cast<PhysicalHashJoin>().extra_condition = std::move(op.extra_condition);
 	} else {
 		D_ASSERT(op.left_projection_map.empty());
 		if (left->estimated_cardinality <= client_config.nested_loop_join_threshold ||
@@ -99,6 +100,10 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::PlanComparisonJoin(LogicalCo
 				RewriteJoinCondition(*cond.right, left->types.size());
 			}
 			auto condition = JoinCondition::CreateExpression(std::move(op.conditions));
+			if (op.extra_condition) {
+				condition = make_uniq_base<Expression, BoundConjunctionExpression>(
+				    ExpressionType::CONJUNCTION_AND, std::move(condition), std::move(op.extra_condition));
+			}
 			plan = make_uniq<PhysicalBlockwiseNLJoin>(op, std::move(left), std::move(right), std::move(condition),
 			                                          op.join_type, op.estimated_cardinality);
 		}

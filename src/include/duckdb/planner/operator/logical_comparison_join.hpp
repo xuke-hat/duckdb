@@ -38,6 +38,8 @@ public:
 	bool convert_mark_to_semi = true;
 	//! Scans where we should push generated filters into (if any)
 	unique_ptr<JoinFilterPushdownInfo> filter_pushdown;
+	//! Extra condition for non-comparison join condition
+	unique_ptr<Expression> extra_condition;
 
 public:
 	InsertionOrderPreservingMap<string> ParamsToString() const override;

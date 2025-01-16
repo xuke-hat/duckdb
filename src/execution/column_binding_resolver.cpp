@@ -37,6 +37,9 @@ void ColumnBindingResolver::VisitOperator(LogicalOperator &op) {
 		}
 		// finally update the bindings with the result bindings of the join
 		bindings = op.GetColumnBindings();
+		if (comp_join.extra_condition) {
+			VisitExpression(&comp_join.extra_condition);
+		}
 		return;
 	}
 	case LogicalOperatorType::LOGICAL_DELIM_JOIN: {

@@ -782,8 +782,8 @@ SinkFinalizeType PhysicalHashJoin::Finalize(Pipeline &pipeline, Event &event, Cl
 //===--------------------------------------------------------------------===//
 class HashJoinOperatorState : public CachingOperatorState {
 public:
-	explicit HashJoinOperatorState(ClientContext &context, HashJoinGlobalSinkState &sink)
-	    : probe_executor(context), scan_structure(*sink.hash_table, join_key_state) {
+	explicit HashJoinOperatorState(ClientContext &context, HashJoinGlobalSinkState &sink, Expression *extra_expression)
+	    : probe_executor(context), scan_structure(*sink.hash_table, join_key_state, context, extra_expression) {
 	}
 
 	DataChunk lhs_join_keys;
@@ -808,7 +808,7 @@ public:
 unique_ptr<OperatorState> PhysicalHashJoin::GetOperatorState(ExecutionContext &context) const {
 	auto &allocator = BufferAllocator::Get(context.client);
 	auto &sink = sink_state->Cast<HashJoinGlobalSinkState>();
-	auto state = make_uniq<HashJoinOperatorState>(context.client, sink);
+	auto state = make_uniq<HashJoinOperatorState>(context.client, sink, extra_condition.get());
 	state->lhs_join_keys.Initialize(allocator, condition_types);
 	if (!lhs_output_columns.col_types.empty()) {
 		state->lhs_output.Initialize(allocator, lhs_output_columns.col_types);
@@ -1177,7 +1177,7 @@ bool HashJoinGlobalSourceState::AssignTask(HashJoinGlobalSinkState &sink, HashJo
 HashJoinLocalSourceState::HashJoinLocalSourceState(const PhysicalHashJoin &op, const HashJoinGlobalSinkState &sink,
                                                    Allocator &allocator)
     : local_stage(HashJoinSourceStage::INIT), addresses(LogicalType::POINTER), lhs_join_key_executor(sink.context),
-      scan_structure(*sink.hash_table, join_key_state) {
+      scan_structure(*sink.hash_table, join_key_state, sink.context, nullptr) {
 	auto &chunk_state = probe_local_scan.current_chunk_state;
 	chunk_state.properties = ColumnDataScanProperties::ALLOW_ZERO_COPY;
 
