@@ -38,7 +38,7 @@ static const ValidityMask &ExtractValidityMask(const Vector &v) {
 }
 
 void VectorOperations::Copy(const Vector &source_p, Vector &target, const SelectionVector &sel_p, idx_t source_count,
-                            idx_t source_offset, idx_t target_offset, idx_t copy_count) {
+                            idx_t source_offset, idx_t target_offset, idx_t copy_count, bool copy_heap) {
 
 	SelectionVector owned_sel;
 	const SelectionVector *sel = &sel_p;
@@ -158,11 +158,21 @@ void VectorOperations::Copy(const Vector &source_p, Vector &target, const Select
 	case PhysicalType::VARCHAR: {
 		auto ldata = FlatVector::GetData<string_t>(*source);
 		auto tdata = FlatVector::GetData<string_t>(target);
-		for (idx_t i = 0; i < copy_count; i++) {
-			auto source_idx = sel->get_index(source_offset + i);
-			auto target_idx = target_offset + i;
-			if (tmask.RowIsValid(target_idx)) {
-				tdata[target_idx] = StringVector::AddStringOrBlob(target, ldata[source_idx]);
+		if (copy_heap) {
+			for (idx_t i = 0; i < copy_count; i++) {
+				auto source_idx = sel->get_index(source_offset + i);
+				auto target_idx = target_offset + i;
+				if (tmask.RowIsValid(target_idx)) {
+					tdata[target_idx] = StringVector::AddStringOrBlob(target, ldata[source_idx]);
+				}
+			}
+		} else {
+			for (idx_t i = 0; i < copy_count; i++) {
+				auto source_idx = sel->get_index(source_offset + i);
+				auto target_idx = target_offset + i;
+				if (tmask.RowIsValid(target_idx)) {
+					tdata[target_idx] = ldata[source_idx];
+				}
 			}
 		}
 		break;
@@ -268,17 +278,17 @@ void VectorOperations::Copy(const Vector &source_p, Vector &target, const Select
 }
 
 void VectorOperations::Copy(const Vector &source_p, Vector &target, const SelectionVector &sel_p, idx_t source_count,
-                            idx_t source_offset, idx_t target_offset) {
+                            idx_t source_offset, idx_t target_offset, bool copy_heap) {
 	D_ASSERT(source_offset <= source_count);
 	D_ASSERT(source_p.GetType() == target.GetType());
 	idx_t copy_count = source_count - source_offset;
-	VectorOperations::Copy(source_p, target, sel_p, source_count, source_offset, target_offset, copy_count);
+	VectorOperations::Copy(source_p, target, sel_p, source_count, source_offset, target_offset, copy_count, copy_heap);
 }
 
 void VectorOperations::Copy(const Vector &source, Vector &target, idx_t source_count, idx_t source_offset,
-                            idx_t target_offset) {
+                            idx_t target_offset, bool copy_heap) {
 	VectorOperations::Copy(source, target, *FlatVector::IncrementalSelectionVector(), source_count, source_offset,
-	                       target_offset);
+	                       target_offset, copy_heap);
 }
 
 } // namespace duckdb

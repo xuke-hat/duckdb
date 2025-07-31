@@ -187,12 +187,12 @@ struct VectorOperations {
 	DUCKDB_API static void DefaultCast(Vector &source, Vector &result, idx_t count, bool strict = false);
 
 	// Copy the data of <source> to the target vector
-	static void Copy(const Vector &source, Vector &target, idx_t source_count, idx_t source_offset,
-	                 idx_t target_offset);
+	static void Copy(const Vector &source, Vector &target, idx_t source_count, idx_t source_offset, idx_t target_offset,
+	                 bool copy_heap = true);
 	static void Copy(const Vector &source, Vector &target, const SelectionVector &sel, idx_t source_count,
-	                 idx_t source_offset, idx_t target_offset);
+	                 idx_t source_offset, idx_t target_offset, bool copy_heap = true);
 	static void Copy(const Vector &source, Vector &target, const SelectionVector &sel, idx_t source_count,
-	                 idx_t source_offset, idx_t target_offset, idx_t copy_count);
+	                 idx_t source_offset, idx_t target_offset, idx_t copy_count, bool copy_heap = true);
 
 	// Copy the data of <source> to the target location, setting null values to
 	// NullValue<T>. Used to store data without separate NULL mask.

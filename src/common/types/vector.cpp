@@ -928,7 +928,7 @@ static void TemplatedFlattenConstantVector(data_ptr_t data, data_ptr_t old_data,
 	}
 }
 
-void Vector::Flatten(idx_t count) {
+void Vector::Flatten(idx_t count, bool copy_heap) {
 	switch (GetVectorType()) {
 	case VectorType::FLAT_VECTOR:
 		// already a flat vector
@@ -970,7 +970,13 @@ void Vector::Flatten(idx_t count) {
 		// create a new flat vector of this type
 		Vector other(GetType(), count);
 		// now copy the data of this vector to the other vector, removing the selection vector in the process
-		VectorOperations::Copy(*this, other, count, 0, 0);
+		VectorOperations::Copy(*this, other, count, 0, 0, false);
+		if (GetType().InternalType() == PhysicalType::VARCHAR) {
+			D_ASSERT(!other.auxiliary);
+			auto &child = DictionaryVector::Child(*this);
+			DynamicCastCheck<VectorStringBuffer>(child.auxiliary.get());
+			other.auxiliary = std::move(child.auxiliary);
+		}
 		// create a reference to the data in the other vector
 		this->Reference(other);
 		break;
