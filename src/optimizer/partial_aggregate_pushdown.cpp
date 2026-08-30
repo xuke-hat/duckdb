@@ -9,6 +9,7 @@
 #include "duckdb/function/scalar/generic_common.hpp"
 #include "duckdb/optimizer/optimizer.hpp"
 #include "duckdb/optimizer/relation_statistics/relation_statistics_extractor.hpp"
+#include "duckdb/optimizer/relation_statistics/relation_statistics_helper.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
@@ -409,15 +410,18 @@ static bool BindPushdownAggregates(ClientContext &context, LogicalAggregate &agg
 	return true;
 }
 
-static unique_ptr<LogicalAggregate> CreateLowerAggregate(LogicalAggregate &aggr, LogicalComparisonJoin &join,
+static unique_ptr<LogicalAggregate> CreateLowerAggregate(LogicalComparisonJoin &join,
                                                          PartialAggregatePushdownInfo &info,
                                                          vector<unique_ptr<Expression>> lower_aggregates) {
 	auto lower_aggr =
 	    make_uniq<LogicalAggregate>(info.lower_group_index, info.lower_aggregate_index, std::move(lower_aggregates));
 	lower_aggr->groups = std::move(info.lower_groups);
+	lower_aggr->grouping_sets.emplace_back();
+	for (auto group_idx : ProjectionIndex::GetIndexes(lower_aggr->groups.size())) {
+		lower_aggr->grouping_sets.back().insert(group_idx);
+	}
 	lower_aggr->children.push_back(std::move(join.children[info.aggregate_side]));
 	lower_aggr->ResolveOperatorTypes();
-	CopyCardinality(*lower_aggr, aggr);
 	return lower_aggr;
 }
 
@@ -450,7 +454,6 @@ static unique_ptr<LogicalComparisonJoin> CreateJoin(LogicalComparisonJoin &join,
 		}
 	}
 	new_join->ResolveOperatorTypes();
-	CopyCardinality(*new_join, join);
 	return new_join;
 }
 
@@ -1113,6 +1116,44 @@ unique_ptr<Expression> PartialAggregatePushdown::VisitReplace(BoundColumnRefExpr
 	return nullptr;
 }
 
+static bool EstimateLowerAggregateCardinality(ClientContext &context, LogicalAggregate &lower_aggr,
+                                              idx_t &input_cardinality, idx_t &lower_cardinality) {
+	RelationStatsExtractor stats_extractor(context);
+	auto child_stats = stats_extractor.Extract(*lower_aggr.children[0]);
+	if (!child_stats) {
+		return false;
+	}
+	auto lower_stats = RelationStatisticsHelper::ExtractAggregationStats(lower_aggr, *child_stats);
+	if (!lower_stats) {
+		return false;
+	}
+	input_cardinality = child_stats->cardinality;
+	lower_cardinality = lower_stats->cardinality;
+	return true;
+}
+
+static bool EstimateOneSidedJoinCardinality(const LogicalComparisonJoin &join, idx_t input_cardinality,
+                                            idx_t lower_cardinality, idx_t &join_cardinality) {
+	if (!join.has_estimated_cardinality || input_cardinality == 0) {
+		return false;
+	}
+	const auto reduction = LossyNumericCast<double>(lower_cardinality) / LossyNumericCast<double>(input_cardinality);
+	const auto estimate = LossyNumericCast<double>(join.estimated_cardinality) * reduction;
+	const auto max_cardinality = NumericLimits<idx_t>::Maximum();
+	if (estimate >= LossyNumericCast<double>(max_cardinality)) {
+		join_cardinality = max_cardinality;
+	} else {
+		join_cardinality = LossyNumericCast<idx_t>(estimate);
+	}
+	if (join.estimated_cardinality > 0) {
+		join_cardinality = MaxValue<idx_t>(join_cardinality, 1);
+	}
+	if (join.join_type == JoinType::LEFT || join.join_type == JoinType::RIGHT) {
+		join_cardinality = MaxValue(join_cardinality, lower_cardinality);
+	}
+	return true;
+}
+
 bool PartialAggregatePushdown::TryPushdownAggregate(unique_ptr<LogicalOperator> &op) {
 	LogicalAggregate *aggr;
 	LogicalComparisonJoin *join;
@@ -1140,8 +1181,21 @@ bool PartialAggregatePushdown::TryPushdownAggregate(unique_ptr<LogicalOperator> 
 		return false;
 	}
 
-	auto lower_aggr = CreateLowerAggregate(*aggr, *join, info, std::move(lower_aggregates));
+	auto lower_aggr = CreateLowerAggregate(*join, info, std::move(lower_aggregates));
+	idx_t input_cardinality;
+	idx_t lower_cardinality;
+	idx_t join_cardinality;
+	bool has_join_cardinality = false;
+	if (EstimateLowerAggregateCardinality(optimizer.context, *lower_aggr, input_cardinality, lower_cardinality)) {
+		lower_aggr->SetEstimatedCardinality(lower_cardinality);
+		has_join_cardinality =
+		    EstimateOneSidedJoinCardinality(*join, input_cardinality, lower_cardinality, join_cardinality);
+	}
+
 	auto new_join = CreateJoin(*join, info, std::move(lower_aggr));
+	if (has_join_cardinality) {
+		new_join->SetEstimatedCardinality(join_cardinality);
+	}
 	auto upper_aggr = CreateUpperAggregate(*aggr, std::move(new_join), info, std::move(upper_aggregates));
 	auto final_projection =
 	    BuildFinalProjection(optimizer, *aggr, std::move(upper_aggr), replacement_map,

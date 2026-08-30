@@ -71,6 +71,16 @@ GROUP BY d_a, d_b, d_c, d_d
 ----
 physical_plan	<REGEX>:.*combine_aggr.*
 
+# The post-aggregation estimate makes the lower aggregate the cheaper build side.
+# JSON serializes the probe side first, followed by the build side.
+query II
+EXPLAIN (FORMAT JSON)
+SELECT d_a, d_b, d_c, d_d, sum(measure)
+FROM fact JOIN dim USING (dim_key)
+GROUP BY d_a, d_b, d_c, d_d
+----
+physical_plan	<REGEX>:.*HASH_JOIN.*"Table":\s*"memory.main.dim".*"Table":\s*"memory.main.fact".*EXPORT_STATE.*
+
 # Grouping only by the dimension join key does not make a second aggregate pass worthwhile.
 query II
 EXPLAIN
