@@ -998,6 +998,7 @@ struct DecimalRoundNegativePrecisionOperator {
 		    UnsafeNumericCast<T>(POWERS_OF_TEN_CLASS::POWERS_OF_TEN[-info.target_scale + source_scale]);
 		T multiply_power_of_ten = UnsafeNumericCast<T>(POWERS_OF_TEN_CLASS::POWERS_OF_TEN[-info.target_scale]);
 		T addition = divide_power_of_ten / 2;
+		const bool check_overflow = info.check_overflow;
 
 		UnaryExecutor::Execute<T, T>(input.data[0], result, [&](T input) {
 			if (input < 0) {
@@ -1007,8 +1008,8 @@ struct DecimalRoundNegativePrecisionOperator {
 			}
 			auto rounded = UnsafeNumericCast<T>(input / divide_power_of_ten * multiply_power_of_ten);
 			if constexpr (std::is_same_v<T, hugeint_t>) {
-				if (info.check_overflow && (rounded <= -Hugeint::POWERS_OF_TEN[Decimal::MAX_WIDTH_DECIMAL] ||
-				                            rounded >= Hugeint::POWERS_OF_TEN[Decimal::MAX_WIDTH_DECIMAL])) {
+				if (check_overflow && (rounded <= -Hugeint::POWERS_OF_TEN[Decimal::MAX_WIDTH_DECIMAL] ||
+				                       rounded >= Hugeint::POWERS_OF_TEN[Decimal::MAX_WIDTH_DECIMAL])) {
 					throw OutOfRangeException("Overflow in ROUND of DECIMAL(38)");
 				}
 			}

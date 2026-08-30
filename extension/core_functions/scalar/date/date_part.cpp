@@ -2044,7 +2044,7 @@ static scalar_function_t DatePartUnaryCallback(DatePartSpecifier part_code, Logi
 		return DatePartUnaryCallback<double, DatePart::JulianDayOperator>(type);
 	case DatePartSpecifier::EPOCH:
 		return DatePartUnaryCallback<double, DatePart::EpochOperator>(type);
-	case DatePartSpecifier::INVALID:
+	default:
 		throw NotImplementedException("Specifier type not implemented for DATEPART");
 	}
 }
@@ -2123,7 +2123,7 @@ static function_statistics_t DatePartUnaryStatistics(DatePartSpecifier part_code
 		return DatePartUnaryStatistics<DatePart::JulianDayOperator>(type);
 	case DatePartSpecifier::EPOCH:
 		return DatePartUnaryStatistics<DatePart::EpochOperator>(type);
-	case DatePartSpecifier::INVALID:
+	default:
 		throw NotImplementedException("Specifier type not implemented for DATEPART");
 	}
 }
